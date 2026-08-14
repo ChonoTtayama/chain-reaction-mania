@@ -1,24 +1,388 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "CHAIN BURST — One Tap Chain Reaction Game" },
+      {
+        name: "description",
+        content:
+          "CHAIN BURST is a one-tap chain reaction game. Fire a single burst and chain as many moving balls as you can.",
+      },
+      { property: "og:title", content: "CHAIN BURST — One Tap Chain Reaction Game" },
+      {
+        property: "og:description",
+        content: "One click, one explosion, endless chains. Beat your best chain.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+const BALL_COUNT = 30;
+const BALL_R = 11;
+const MAX_BURST = 78;
+const GROW = 1.5;
+const HOLD = 26;
+
+type Ball = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hue: number;
+  state: "idle" | "burst" | "done";
+  r: number;
+  life: number;
+};
+
+type Burst = { x: number; y: number; r: number; life: number; hue: number };
+
+const STORE = "chainburst.v1";
+
+function loadStore() {
+  if (typeof window === "undefined") return { best: 0, plays: 0 };
+  try {
+    const raw = window.localStorage.getItem(STORE);
+    if (!raw) return { best: 0, plays: 0 };
+    const p = JSON.parse(raw);
+    return { best: Number(p.best) || 0, plays: Number(p.plays) || 0 };
+  } catch {
+    return { best: 0, plays: 0 };
+  }
+}
+
 function Index() {
+  const [screen, setScreen] = useState<"title" | "game">("title");
+  const [best, setBest] = useState(0);
+  const [plays, setPlays] = useState(0);
+
+  useEffect(() => {
+    const s = loadStore();
+    setBest(s.best);
+    setPlays(s.plays);
+  }, []);
+
+  const persist = useCallback((b: number, p: number) => {
+    setBest(b);
+    setPlays(p);
+    try {
+      window.localStorage.setItem(STORE, JSON.stringify({ best: b, plays: p }));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-arena" />
+      {screen === "title" ? (
+        <Title best={best} plays={plays} onStart={() => setScreen("game")} />
+      ) : (
+        <Game
+          best={best}
+          plays={plays}
+          persist={persist}
+          onTitle={() => setScreen("title")}
+        />
+      )}
+    </main>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-card/70 px-4 py-2 backdrop-blur">
+      <div className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="font-mono text-2xl font-bold leading-tight text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function Title({
+  best,
+  plays,
+  onStart,
+}: {
+  best: number;
+  plays: number;
+  onStart: () => void;
+}) {
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-8 px-6 py-10 text-center">
+      <div>
+        <h1 className="text-glow text-5xl font-black tracking-[0.12em] sm:text-6xl">
+          CHAIN&nbsp;BURST
+        </h1>
+        <p className="mt-4 text-sm text-muted-foreground sm:text-base">
+          1プレイ1回だけの爆発。動くボールを巻き込んで、連鎖を最大まで伸ばそう。
+        </p>
+      </div>
+
+      <ol className="w-full space-y-2 rounded-2xl border border-border/60 bg-card/60 p-5 text-left text-sm text-muted-foreground backdrop-blur">
+        <li>1. STARTでゲーム開始</li>
+        <li>2. 好きな場所を1回だけクリック / タップ</li>
+        <li>3. 爆発がボールに触れると連鎖 — 巻き込んだ数がCHAIN</li>
+      </ol>
+
+      <button onClick={onStart} className="btn-hero w-full max-w-xs">
+        START
+      </button>
+
+      <div className="flex gap-3">
+        <Stat label="BEST CHAIN" value={best} />
+        <Stat label="PLAY COUNT" value={plays} />
+      </div>
+    </div>
+  );
+}
+
+function Game({
+  best,
+  plays,
+  persist,
+  onTitle,
+}: {
+  best: number;
+  plays: number;
+  persist: (b: number, p: number) => void;
+  onTitle: () => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ballsRef = useRef<Ball[]>([]);
+  const burstsRef = useRef<Burst[]>([]);
+  const sizeRef = useRef({ w: 0, h: 0 });
+  const firedRef = useRef(false);
+  const chainRef = useRef(0);
+  const settleRef = useRef(0);
+
+  const [chain, setChain] = useState(0);
+  const [fired, setFired] = useState(false);
+  const [result, setResult] = useState<null | { chain: number; newBest: boolean }>(null);
+
+  const reset = useCallback(() => {
+    const { w, h } = sizeRef.current;
+    firedRef.current = false;
+    chainRef.current = 0;
+    settleRef.current = 0;
+    burstsRef.current = [];
+    ballsRef.current = Array.from({ length: BALL_COUNT }, () => {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.5 + Math.random() * 1.1;
+      return {
+        x: BALL_R + Math.random() * Math.max(1, w - BALL_R * 2),
+        y: BALL_R + Math.random() * Math.max(1, h - BALL_R * 2),
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        hue: 165 + Math.random() * 90,
+        state: "idle",
+        r: BALL_R,
+        life: 0,
+      };
+    });
+    setChain(0);
+    setFired(false);
+    setResult(null);
+  }, []);
+
+  // sizing
+  useEffect(() => {
+    const el = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!el || !canvas) return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      sizeRef.current = { w: r.width, h: r.height };
+      canvas.width = Math.max(1, Math.floor(r.width * dpr));
+      canvas.height = Math.max(1, Math.floor(r.height * dpr));
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (ballsRef.current.length === 0) reset();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [reset]);
+
+  // loop
+  useEffect(() => {
+    let raf = 0;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const { w, h } = sizeRef.current;
+      const balls = ballsRef.current;
+      const bursts = burstsRef.current;
+
+      for (const b of balls) {
+        if (b.state === "idle") {
+          b.x += b.vx;
+          b.y += b.vy;
+          if (b.x < BALL_R) (b.x = BALL_R), (b.vx = Math.abs(b.vx));
+          if (b.x > w - BALL_R) (b.x = w - BALL_R), (b.vx = -Math.abs(b.vx));
+          if (b.y < BALL_R) (b.y = BALL_R), (b.vy = Math.abs(b.vy));
+          if (b.y > h - BALL_R) (b.y = h - BALL_R), (b.vy = -Math.abs(b.vy));
+        }
+      }
+
+      for (let i = bursts.length - 1; i >= 0; i--) {
+        const bu = bursts[i];
+        bu.life++;
+        if (bu.r < MAX_BURST) bu.r = Math.min(MAX_BURST, bu.r + GROW);
+        for (const b of balls) {
+          if (b.state !== "idle") continue;
+          const dx = b.x - bu.x;
+          const dy = b.y - bu.y;
+          if (Math.hypot(dx, dy) < bu.r + b.r) {
+            b.state = "burst";
+            b.life = 0;
+            chainRef.current++;
+            setChain(chainRef.current);
+            bursts.push({ x: b.x, y: b.y, r: 4, life: 0, hue: b.hue });
+          }
+        }
+        if (bu.life > MAX_BURST / GROW + HOLD) bursts.splice(i, 1);
+      }
+
+      for (const b of balls) {
+        if (b.state === "burst") {
+          b.life++;
+          if (b.life > 16) b.state = "done";
+        }
+      }
+
+      if (firedRef.current && bursts.length === 0 && !result) {
+        settleRef.current++;
+        if (settleRef.current > 20) {
+          const c = chainRef.current;
+          const isBest = c > best;
+          persist(isBest ? c : best, plays + 1);
+          setResult({ chain: c, newBest: isBest });
+        }
+      }
+
+      // draw
+      ctx.clearRect(0, 0, w, h);
+      for (const b of balls) {
+        if (b.state === "done") continue;
+        if (b.state === "idle") {
+          const g = ctx.createRadialGradient(b.x - 3, b.y - 3, 1, b.x, b.y, b.r);
+          g.addColorStop(0, `hsl(${b.hue} 100% 82%)`);
+          g.addColorStop(1, `hsl(${b.hue} 85% 48%)`);
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const t = b.life / 16;
+          ctx.strokeStyle = `hsla(${b.hue} 100% 75% / ${1 - t})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r + t * 14, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      for (const bu of bursts) {
+        const fade = Math.max(0, 1 - bu.life / (MAX_BURST / GROW + HOLD));
+        const g = ctx.createRadialGradient(bu.x, bu.y, bu.r * 0.3, bu.x, bu.y, bu.r);
+        g.addColorStop(0, `hsla(${bu.hue} 100% 70% / ${0.06 * fade})`);
+        g.addColorStop(1, `hsla(${bu.hue} 100% 60% / ${0.28 * fade})`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(bu.x, bu.y, bu.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `hsla(${bu.hue} 100% 80% / ${fade})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [best, plays, persist, result]);
+
+  const onPointer = (e: React.PointerEvent) => {
+    if (firedRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    firedRef.current = true;
+    setFired(true);
+    burstsRef.current.push({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      r: 6,
+      life: 0,
+      hue: 190,
+    });
+  };
+
+  const shownBest = result?.newBest ? result.chain : best;
+
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-3xl flex-col gap-3 p-3 sm:p-5">
+      <header className="flex items-center justify-between gap-3">
+        <button onClick={onTitle} className="btn-ghost">
+          ← TITLE
+        </button>
+        <div className="flex gap-2">
+          <Stat label="CHAIN" value={chain} />
+          <Stat label="BEST" value={shownBest} />
+        </div>
+      </header>
+
+      <div
+        ref={wrapRef}
+        onPointerDown={onPointer}
+        className="relative flex-1 touch-none select-none overflow-hidden rounded-2xl border border-border/60 bg-field shadow-[0_0_60px_-20px_var(--glow)]"
+      >
+        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+        {!fired && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="animate-pulse rounded-full border border-border bg-card/80 px-5 py-3 text-sm font-bold tracking-[0.2em] backdrop-blur">
+              CLICK / TAP ANYWHERE
+            </span>
+          </div>
+        )}
+
+        {result && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/75 p-6 backdrop-blur-sm">
+            <div className="w-full max-w-xs rounded-2xl border border-border bg-card p-6 text-center shadow-xl">
+              <div className="text-xs font-semibold tracking-[0.25em] text-muted-foreground">
+                RESULT
+              </div>
+              <div className="mt-2 font-mono text-4xl font-black">
+                CHAIN {result.chain}
+                <span className="text-muted-foreground"> / {BALL_COUNT}</span>
+              </div>
+              {result.newBest && (
+                <div className="text-glow mt-2 text-sm font-black tracking-[0.2em]">
+                  NEW BEST!
+                </div>
+              )}
+              <div className="mt-6 space-y-2">
+                <button onClick={reset} className="btn-hero w-full">
+                  RETRY
+                </button>
+                <button onClick={onTitle} className="btn-ghost w-full">
+                  TITLE
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <p className="text-center text-xs text-muted-foreground">
+        操作は1プレイにつき1回だけ。連鎖の広がりを見届けよう。
+      </p>
     </div>
   );
 }
