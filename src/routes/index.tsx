@@ -235,7 +235,7 @@ function Game({
       }
 
       for (let i = bursts.length - 1; i >= 0; i--) {
-        const bu = bursts[i];
+        const bu = bursts[i]!;
         bu.life++;
         if (bu.r < MAX_BURST) bu.r = Math.min(MAX_BURST, bu.r + GROW);
         for (const b of balls) {
