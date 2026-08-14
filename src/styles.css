@@ -140,5 +140,85 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: ui-sans-serif, system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
   }
 }
+
+:root {
+  --background: oklch(0.16 0.03 265);
+  --foreground: oklch(0.97 0.01 240);
+  --card: oklch(0.22 0.035 265);
+  --card-foreground: oklch(0.97 0.01 240);
+  --popover: oklch(0.22 0.035 265);
+  --popover-foreground: oklch(0.97 0.01 240);
+  --primary: oklch(0.82 0.17 190);
+  --primary-foreground: oklch(0.18 0.04 240);
+  --secondary: oklch(0.28 0.04 265);
+  --secondary-foreground: oklch(0.97 0.01 240);
+  --muted: oklch(0.28 0.04 265);
+  --muted-foreground: oklch(0.72 0.03 255);
+  --accent: oklch(0.8 0.19 145);
+  --accent-foreground: oklch(0.18 0.04 240);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.82 0.17 190);
+  --glow: oklch(0.82 0.17 190 / 60%);
+}
+
+@utility bg-arena {
+  background:
+    radial-gradient(circle at 20% 15%, oklch(0.35 0.1 200 / 35%), transparent 55%),
+    radial-gradient(circle at 82% 85%, oklch(0.35 0.12 300 / 30%), transparent 55%);
+}
+
+@utility bg-field {
+  background:
+    linear-gradient(oklch(0.12 0.03 265), oklch(0.15 0.04 265)),
+    repeating-linear-gradient(0deg, transparent 0 23px, oklch(1 0 0 / 3%) 23px 24px);
+}
+
+@utility text-glow {
+  color: var(--color-primary);
+  text-shadow: 0 0 24px var(--glow);
+}
+
+@utility btn-hero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  color: var(--color-primary-foreground);
+  padding: 0.9rem 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  box-shadow: 0 10px 40px -12px var(--glow);
+  transition: transform 0.15s ease, filter 0.15s ease;
+
+  &:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+@utility btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-foreground);
+  padding: 0.6rem 1rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  font-size: 0.8rem;
+
+  &:hover {
+    background: var(--color-secondary);
+  }
+}
+
