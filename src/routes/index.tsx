@@ -115,21 +115,6 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function ChainStat({ chain }: { chain: number }) {
-  const tier = tierOf(chain);
-  return (
-    <div
-      className="chain-stat rounded-xl border border-border/60 bg-card/70 px-4 py-2 backdrop-blur"
-      data-tier={tier}
-    >
-      <div className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">CHAIN</div>
-      <div key={chain} className="chain-value font-mono text-2xl font-bold leading-tight">
-        {chain}
-      </div>
-    </div>
-  );
-}
-
 function Title({
   best,
   plays,
@@ -467,8 +452,8 @@ function Game({
           ← TITLE
         </button>
         <div className="flex gap-2">
-          <ChainStat chain={chain} />
           <Stat label="BEST" value={shownBest} />
+          <Stat label="PLAYS" value={plays} />
         </div>
       </header>
 
@@ -488,11 +473,15 @@ function Game({
           </div>
         )}
 
-        {chaining && !result && (
-          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
-            <span className="chain-live" data-tier={tier}>
-              {tier >= 3 ? "FEVER CHAIN!" : "CHAINING…"}
-            </span>
+        {fired && !result && (
+          <div
+            className="chain-field pointer-events-none absolute left-1/2 top-2 -translate-x-1/2"
+            data-tier={tier}
+          >
+            <div className="chain-field-label">CHAIN</div>
+            <div key={chain} className="chain-field-num">
+              {chain}
+            </div>
           </div>
         )}
 
