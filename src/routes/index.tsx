@@ -473,11 +473,15 @@ function Game({
           </div>
         )}
 
-        {chaining && !result && (
-          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
-            <span className="chain-live" data-tier={tier}>
-              {tier >= 3 ? "FEVER CHAIN!" : "CHAINING…"}
-            </span>
+        {fired && !result && (
+          <div
+            className="chain-field pointer-events-none absolute left-1/2 top-2 -translate-x-1/2"
+            data-tier={tier}
+          >
+            <div className="chain-field-label">CHAIN</div>
+            <div key={chain} className="chain-field-num">
+              {chain}
+            </div>
           </div>
         )}
 
