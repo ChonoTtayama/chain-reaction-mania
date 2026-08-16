@@ -115,21 +115,6 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function ChainStat({ chain }: { chain: number }) {
-  const tier = tierOf(chain);
-  return (
-    <div
-      className="chain-stat rounded-xl border border-border/60 bg-card/70 px-4 py-2 backdrop-blur"
-      data-tier={tier}
-    >
-      <div className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">CHAIN</div>
-      <div key={chain} className="chain-value font-mono text-2xl font-bold leading-tight">
-        {chain}
-      </div>
-    </div>
-  );
-}
-
 function Title({
   best,
   plays,
