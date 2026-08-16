@@ -343,7 +343,8 @@
 @media (prefers-reduced-motion: reduce) {
   .chain-stat .chain-value,
   .chain-stat[data-tier="3"],
-  .chain-live[data-tier="3"] {
+  .chain-field-num,
+  .chain-field[data-tier="3"] {
     animation: none;
   }
 }
