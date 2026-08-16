@@ -452,8 +452,8 @@ function Game({
           ← TITLE
         </button>
         <div className="flex gap-2">
-          <ChainStat chain={chain} />
           <Stat label="BEST" value={shownBest} />
+          <Stat label="PLAYS" value={plays} />
         </div>
       </header>
 
