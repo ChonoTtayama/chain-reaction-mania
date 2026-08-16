@@ -27,6 +27,7 @@ const BALL_R = 11;
 const MAX_BURST = 78;
 const GROW = 1.5;
 const HOLD = 26;
+const FEVER_AT = 10;
 
 type Ball = {
   x: number;
@@ -39,9 +40,19 @@ type Ball = {
   life: number;
 };
 
-type Burst = { x: number; y: number; r: number; life: number; hue: number };
+type Burst = { x: number; y: number; r: number; life: number; hue: number; tier: number };
+
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number };
 
 const STORE = "chainburst.v1";
+
+// visual-only intensity tier from current chain count
+function tierOf(chain: number) {
+  if (chain >= FEVER_AT) return 3;
+  if (chain >= 6) return 2;
+  if (chain >= 3) return 1;
+  return 0;
+}
 
 function loadStore() {
   if (typeof window === "undefined") return { best: 0, plays: 0 };
@@ -104,6 +115,21 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   );
 }
 
+function ChainStat({ chain }: { chain: number }) {
+  const tier = tierOf(chain);
+  return (
+    <div
+      className="chain-stat rounded-xl border border-border/60 bg-card/70 px-4 py-2 backdrop-blur"
+      data-tier={tier}
+    >
+      <div className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">CHAIN</div>
+      <div key={chain} className="chain-value font-mono text-2xl font-bold leading-tight">
+        {chain}
+      </div>
+    </div>
+  );
+}
+
 function Title({
   best,
   plays,
@@ -157,21 +183,32 @@ function Game({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ballsRef = useRef<Ball[]>([]);
   const burstsRef = useRef<Burst[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
   const sizeRef = useRef({ w: 0, h: 0 });
   const firedRef = useRef(false);
   const chainRef = useRef(0);
   const settleRef = useRef(0);
+  const shakeRef = useRef(0);
+  const flashRef = useRef(0);
+  const chainingRef = useRef(false);
 
   const [chain, setChain] = useState(0);
+  const [chaining, setChaining] = useState(false);
   const [fired, setFired] = useState(false);
   const [result, setResult] = useState<null | { chain: number; newBest: boolean }>(null);
+
+  const tier = tierOf(chain);
 
   const reset = useCallback(() => {
     const { w, h } = sizeRef.current;
     firedRef.current = false;
     chainRef.current = 0;
     settleRef.current = 0;
+    shakeRef.current = 0;
+    flashRef.current = 0;
+    chainingRef.current = false;
     burstsRef.current = [];
+    particlesRef.current = [];
     ballsRef.current = Array.from({ length: BALL_COUNT }, () => {
       const a = Math.random() * Math.PI * 2;
       const sp = 0.5 + Math.random() * 1.1;
@@ -187,6 +224,7 @@ function Game({
       };
     });
     setChain(0);
+    setChaining(false);
     setFired(false);
     setResult(null);
   }, []);
@@ -216,12 +254,14 @@ function Game({
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!ctx) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const { w, h } = sizeRef.current;
       const balls = ballsRef.current;
       const bursts = burstsRef.current;
+      const parts = particlesRef.current;
 
       for (const b of balls) {
         if (b.state === "idle") {
@@ -247,7 +287,25 @@ function Game({
             b.life = 0;
             chainRef.current++;
             setChain(chainRef.current);
-            bursts.push({ x: b.x, y: b.y, r: 4, life: 0, hue: b.hue });
+            const t = tierOf(chainRef.current);
+            bursts.push({ x: b.x, y: b.y, r: 4, life: 0, hue: b.hue, tier: t });
+            // visual-only feedback
+            shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
+            if (chainRef.current === FEVER_AT) flashRef.current = 22;
+            const n = 5 + t * 4;
+            for (let k = 0; k < n; k++) {
+              const a = Math.random() * Math.PI * 2;
+              const sp = 1 + Math.random() * (1.5 + t);
+              parts.push({
+                x: b.x,
+                y: b.y,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp,
+                life: 0,
+                max: 24 + t * 8,
+                hue: b.hue,
+              });
+            }
           }
         }
         if (bu.life > MAX_BURST / GROW + HOLD) bursts.splice(i, 1);
@@ -258,6 +316,25 @@ function Game({
           b.life++;
           if (b.life > 16) b.state = "done";
         }
+      }
+
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]!;
+        p.life++;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.95;
+        p.vy *= 0.95;
+        if (p.life > p.max) parts.splice(i, 1);
+      }
+
+      shakeRef.current *= 0.88;
+      if (flashRef.current > 0) flashRef.current--;
+
+      const isChaining = firedRef.current && bursts.length > 0;
+      if (isChaining !== chainingRef.current) {
+        chainingRef.current = isChaining;
+        setChaining(isChaining);
       }
 
       if (firedRef.current && bursts.length === 0 && !result) {
@@ -271,7 +348,33 @@ function Game({
       }
 
       // draw
-      ctx.clearRect(0, 0, w, h);
+      const shake = shakeRef.current;
+      const ox = shake > 0.2 ? (Math.random() - 0.5) * shake : 0;
+      const oy = shake > 0.2 ? (Math.random() - 0.5) * shake : 0;
+      ctx.setTransform(dpr, 0, 0, dpr, ox * dpr, oy * dpr);
+      ctx.clearRect(-8, -8, w + 16, h + 16);
+
+      const curTier = tierOf(chainRef.current);
+
+      // fever backdrop (subtle, keeps balls readable)
+      if (curTier >= 3) {
+        const pulse = 0.05 + 0.03 * Math.sin(Date.now() / 140);
+        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+        g.addColorStop(0, `hsla(48 100% 60% / ${pulse})`);
+        g.addColorStop(1, "hsla(320 100% 60% / 0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      // particles
+      for (const p of parts) {
+        const t = 1 - p.life / p.max;
+        ctx.fillStyle = `hsla(${p.hue} 100% 78% / ${0.5 * t})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.6 * t + 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       for (const b of balls) {
         if (b.state === "done") continue;
         if (b.state === "idle") {
@@ -291,18 +394,49 @@ function Game({
           ctx.stroke();
         }
       }
+
       for (const bu of bursts) {
         const fade = Math.max(0, 1 - bu.life / (MAX_BURST / GROW + HOLD));
+        const t = bu.tier;
+        const hue = t >= 3 ? 48 : bu.hue;
+        const fill = (0.22 + t * 0.05) * fade;
         const g = ctx.createRadialGradient(bu.x, bu.y, bu.r * 0.3, bu.x, bu.y, bu.r);
-        g.addColorStop(0, `hsla(${bu.hue} 100% 70% / ${0.06 * fade})`);
-        g.addColorStop(1, `hsla(${bu.hue} 100% 60% / ${0.28 * fade})`);
+        g.addColorStop(0, `hsla(${hue} 100% 70% / ${0.06 * fade})`);
+        g.addColorStop(1, `hsla(${hue} 100% 60% / ${fill})`);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(bu.x, bu.y, bu.r, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = `hsla(${bu.hue} 100% 80% / ${fade})`;
-        ctx.lineWidth = 2;
+
+        // the hit-radius ring stays the single source of truth, just brighter per tier
+        ctx.strokeStyle = `hsla(${hue} 100% ${80 + t * 4}% / ${fade})`;
+        ctx.lineWidth = 2 + t * 0.9;
         ctx.stroke();
+
+        // core spark marks the explosion origin clearly
+        ctx.fillStyle = `hsla(${hue} 100% 92% / ${0.5 * fade})`;
+        ctx.beginPath();
+        ctx.arc(bu.x, bu.y, 2 + t, 0, Math.PI * 2);
+        ctx.fill();
+
+        // fever: rotating cross flare (thin, does not hide the field)
+        if (t >= 3 && fade > 0.2) {
+          const a = bu.life * 0.12;
+          ctx.strokeStyle = `hsla(48 100% 85% / ${0.35 * fade})`;
+          ctx.lineWidth = 1.5;
+          for (let k = 0; k < 4; k++) {
+            const ang = a + (k * Math.PI) / 2;
+            ctx.beginPath();
+            ctx.moveTo(bu.x + Math.cos(ang) * bu.r * 0.5, bu.y + Math.sin(ang) * bu.r * 0.5);
+            ctx.lineTo(bu.x + Math.cos(ang) * (bu.r + 14), bu.y + Math.sin(ang) * (bu.r + 14));
+            ctx.stroke();
+          }
+        }
+      }
+
+      if (flashRef.current > 0) {
+        ctx.fillStyle = `hsla(48 100% 70% / ${(flashRef.current / 22) * 0.18})`;
+        ctx.fillRect(0, 0, w, h);
       }
     };
     raf = requestAnimationFrame(tick);
@@ -320,6 +454,7 @@ function Game({
       r: 6,
       life: 0,
       hue: 190,
+      tier: 0,
     });
   };
 
@@ -332,7 +467,7 @@ function Game({
           ← TITLE
         </button>
         <div className="flex gap-2">
-          <Stat label="CHAIN" value={chain} />
+          <ChainStat chain={chain} />
           <Stat label="BEST" value={shownBest} />
         </div>
       </header>
@@ -340,7 +475,8 @@ function Game({
       <div
         ref={wrapRef}
         onPointerDown={onPointer}
-        className="relative flex-1 touch-none select-none overflow-hidden rounded-2xl border border-border/60 bg-field shadow-[0_0_60px_-20px_var(--glow)]"
+        data-tier={tier}
+        className="field-frame relative flex-1 touch-none select-none overflow-hidden rounded-2xl border border-border/60 bg-field shadow-[0_0_60px_-20px_var(--glow)]"
       >
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
@@ -348,6 +484,14 @@ function Game({
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="animate-pulse rounded-full border border-border bg-card/80 px-5 py-3 text-sm font-bold tracking-[0.2em] backdrop-blur">
               CLICK / TAP ANYWHERE
+            </span>
+          </div>
+        )}
+
+        {chaining && !result && (
+          <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2">
+            <span className="chain-live" data-tier={tier}>
+              {tier >= 3 ? "FEVER CHAIN!" : "CHAINING…"}
             </span>
           </div>
         )}
@@ -362,6 +506,11 @@ function Game({
                 CHAIN {result.chain}
                 <span className="text-muted-foreground"> / {BALL_COUNT}</span>
               </div>
+              {result.chain >= FEVER_AT && (
+                <div className="mt-1 text-xs font-bold tracking-[0.25em] text-[oklch(0.85_0.17_85)]">
+                  FEVER REACHED
+                </div>
+              )}
               {result.newBest && (
                 <div className="text-glow mt-2 text-sm font-black tracking-[0.2em]">
                   NEW BEST!
