@@ -56,43 +56,80 @@ function tierOf(chain: number) {
 }
 
 function loadStore() {
-  if (typeof window === "undefined") return { best: 0, plays: 0 };
+  const empty = { best: 0, plays: 0, history: [] as number[] };
+  if (typeof window === "undefined") return empty;
   try {
     const raw = window.localStorage.getItem(STORE);
-    if (!raw) return { best: 0, plays: 0 };
+    if (!raw) return empty;
     const p = JSON.parse(raw);
-    return { best: Number(p.best) || 0, plays: Number(p.plays) || 0 };
+    // Backward compat: older saves (Round 1/2) only had best + plays.
+    // Treat a missing/invalid `history` as an empty array so existing users
+    // are not broken — they just start collecting history from this play on.
+    const histRaw = Array.isArray(p.history) ? p.history : [];
+    const hist = histRaw
+      .filter((n: unknown): n is number => typeof n === "number" && Number.isFinite(n))
+      .slice(0, 10);
+    return {
+      best: Number(p.best) || 0,
+      plays: Number(p.plays) || 0,
+      history: hist,
+    };
   } catch {
-    return { best: 0, plays: 0 };
+    return empty;
   }
 }
 
 function Index() {
-  const [screen, setScreen] = useState<"title" | "game">("title");
+  const [screen, setScreen] = useState<"title" | "game" | "history">("title");
   const [best, setBest] = useState(0);
   const [plays, setPlays] = useState(0);
+  const [history, setHistory] = useState<number[]>([]);
 
   useEffect(() => {
     const s = loadStore();
     setBest(s.best);
     setPlays(s.plays);
+    setHistory(s.history);
   }, []);
 
-  const persist = useCallback((b: number, p: number) => {
+  // Persist a finished play: update best/plays and prepend this play's chain
+  // to the rolling history (capped at 10, newest first). Uses a functional
+  // state update so `persist` stays referentially stable and the RAF effect
+  // in <Game> is not re-subscribed on every play.
+  const persist = useCallback((b: number, p: number, newChain: number) => {
     setBest(b);
     setPlays(p);
-    try {
-      window.localStorage.setItem(STORE, JSON.stringify({ best: b, plays: p }));
-    } catch {
-      /* ignore */
-    }
+    setHistory((prev) => {
+      const next = [newChain, ...prev].slice(0, 10);
+      try {
+        window.localStorage.setItem(
+          STORE,
+          JSON.stringify({ best: b, plays: p, history: next }),
+        );
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-arena" />
       {screen === "title" ? (
-        <Title best={best} plays={plays} onStart={() => setScreen("game")} />
+        <Title
+          best={best}
+          plays={plays}
+          onStart={() => setScreen("game")}
+          onHistory={() => setScreen("history")}
+        />
+      ) : screen === "history" ? (
+        <History
+          best={best}
+          plays={plays}
+          history={history}
+          onBack={() => setScreen("title")}
+        />
       ) : (
         <Game
           best={best}
@@ -120,10 +157,12 @@ function Title({
   best,
   plays,
   onStart,
+  onHistory,
 }: {
   best: number;
   plays: number;
   onStart: () => void;
+  onHistory: () => void;
 }) {
   return (
     <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-8 px-6 py-10 text-center">
@@ -146,10 +185,80 @@ function Title({
         START
       </button>
 
+      <button onClick={onHistory} className="btn-ghost w-full max-w-xs">
+        HISTORY
+      </button>
+
       <div className="flex gap-3">
         <Stat label="BEST CHAIN" value={best} />
         <Stat label="PLAY COUNT" value={plays} />
       </div>
+    </div>
+  );
+}
+
+function History({
+  best,
+  plays,
+  history,
+  onBack,
+}: {
+  best: number;
+  plays: number;
+  history: number[];
+  onBack: () => void;
+}) {
+  const avg =
+    history.length > 0
+      ? Math.round(
+          (history.reduce((a, b) => a + b, 0) / history.length) * 10,
+        ) / 10
+      : 0;
+
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-6 px-6 py-10 text-center">
+      <h1 className="text-glow text-3xl font-black tracking-[0.12em] sm:text-4xl">
+        HISTORY
+      </h1>
+
+      <div className="flex w-full gap-3">
+        <Stat label="BEST CHAIN" value={best} />
+        <Stat label="AVG CHAIN" value={avg} />
+        <Stat label="PLAY COUNT" value={plays} />
+      </div>
+
+      <div className="w-full rounded-2xl border border-border/60 bg-card/60 p-5 text-left backdrop-blur">
+        <div className="mb-3 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+          直近10プレイ
+        </div>
+        {history.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            まだプレイ履歴がありません。
+            <br />
+            ゲームをプレイするとここに記録されます。
+          </p>
+        ) : (
+          <ol className="space-y-2">
+            {history.map((c, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between rounded-lg border border-border/50 bg-background/40 px-4 py-2"
+              >
+                <span className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+                  PLAY {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="font-mono text-xl font-bold tabular-nums">
+                  {c}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+
+      <button onClick={onBack} className="btn-ghost w-full max-w-xs">
+        ← TITLE
+      </button>
     </div>
   );
 }
@@ -162,7 +271,7 @@ function Game({
 }: {
   best: number;
   plays: number;
-  persist: (b: number, p: number) => void;
+  persist: (b: number, p: number, newChain: number) => void;
   onTitle: () => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -337,7 +446,7 @@ function Game({
         if (settleRef.current > 20) {
           const c = chainRef.current;
           const isBest = c > best;
-          persist(isBest ? c : best, plays + 1);
+          persist(isBest ? c : best, plays + 1, c);
           setResult({ chain: c, newBest: isBest });
         }
       }
