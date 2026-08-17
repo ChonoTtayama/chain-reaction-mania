@@ -157,10 +157,12 @@ function Title({
   best,
   plays,
   onStart,
+  onHistory,
 }: {
   best: number;
   plays: number;
   onStart: () => void;
+  onHistory: () => void;
 }) {
   return (
     <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-8 px-6 py-10 text-center">
@@ -183,10 +185,80 @@ function Title({
         START
       </button>
 
+      <button onClick={onHistory} className="btn-ghost w-full max-w-xs">
+        HISTORY
+      </button>
+
       <div className="flex gap-3">
         <Stat label="BEST CHAIN" value={best} />
         <Stat label="PLAY COUNT" value={plays} />
       </div>
+    </div>
+  );
+}
+
+function History({
+  best,
+  plays,
+  history,
+  onBack,
+}: {
+  best: number;
+  plays: number;
+  history: number[];
+  onBack: () => void;
+}) {
+  const avg =
+    history.length > 0
+      ? Math.round(
+          (history.reduce((a, b) => a + b, 0) / history.length) * 10,
+        ) / 10
+      : 0;
+
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-6 px-6 py-10 text-center">
+      <h1 className="text-glow text-3xl font-black tracking-[0.12em] sm:text-4xl">
+        HISTORY
+      </h1>
+
+      <div className="flex w-full gap-3">
+        <Stat label="BEST CHAIN" value={best} />
+        <Stat label="AVG CHAIN" value={avg} />
+        <Stat label="PLAY COUNT" value={plays} />
+      </div>
+
+      <div className="w-full rounded-2xl border border-border/60 bg-card/60 p-5 text-left backdrop-blur">
+        <div className="mb-3 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+          直近10プレイ
+        </div>
+        {history.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            まだプレイ履歴がありません。
+            <br />
+            ゲームをプレイするとここに記録されます。
+          </p>
+        ) : (
+          <ol className="space-y-2">
+            {history.map((c, i) => (
+              <li
+                key={i}
+                className="flex items-center justify-between rounded-lg border border-border/50 bg-background/40 px-4 py-2"
+              >
+                <span className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+                  PLAY {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="font-mono text-xl font-bold tabular-nums">
+                  {c}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+
+      <button onClick={onBack} className="btn-ghost w-full max-w-xs">
+        ← TITLE
+      </button>
     </div>
   );
 }
