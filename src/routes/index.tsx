@@ -28,6 +28,7 @@ const MAX_BURST = 78;
 const GROW = 1.5;
 const HOLD = 26;
 const FEVER_AT = 10;
+const MAX_PARTICLES = 260;
 
 type Ball = {
   x: number;
