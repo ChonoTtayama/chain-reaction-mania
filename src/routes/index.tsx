@@ -446,7 +446,7 @@ function Game({
         if (settleRef.current > 20) {
           const c = chainRef.current;
           const isBest = c > best;
-          persist(isBest ? c : best, plays + 1);
+          persist(isBest ? c : best, plays + 1, c);
           setResult({ chain: c, newBest: isBest });
         }
       }
