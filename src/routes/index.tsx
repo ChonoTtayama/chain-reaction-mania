@@ -333,7 +333,7 @@ function Game({
       }
 
       if (firedRef.current && bursts.length === 0 && !result) {
-        settleRef.current++;
+        settleRef.current += f;
         if (settleRef.current > 20) {
           const c = chainRef.current;
           const isBest = c > best;
