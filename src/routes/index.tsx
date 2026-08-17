@@ -241,8 +241,14 @@ function Game({
     if (!ctx) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const tick = () => {
+    let last = performance.now();
+
+    const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
+      // frame factor: 1 == one 60fps frame. Clamped so tab-switches / stalls
+      // never teleport balls through walls.
+      const f = Math.min(3, Math.max(0.0001, (now - last) / (1000 / 60)));
+      last = now;
       const { w, h } = sizeRef.current;
       const balls = ballsRef.current;
       const bursts = burstsRef.current;
@@ -250,8 +256,8 @@ function Game({
 
       for (const b of balls) {
         if (b.state === "idle") {
-          b.x += b.vx;
-          b.y += b.vy;
+          b.x += b.vx * f;
+          b.y += b.vy * f;
           if (b.x < BALL_R) (b.x = BALL_R), (b.vx = Math.abs(b.vx));
           if (b.x > w - BALL_R) (b.x = w - BALL_R), (b.vx = -Math.abs(b.vx));
           if (b.y < BALL_R) (b.y = BALL_R), (b.vy = Math.abs(b.vy));
@@ -261,8 +267,8 @@ function Game({
 
       for (let i = bursts.length - 1; i >= 0; i--) {
         const bu = bursts[i]!;
-        bu.life++;
-        if (bu.r < MAX_BURST) bu.r = Math.min(MAX_BURST, bu.r + GROW);
+        bu.life += f;
+        if (bu.r < MAX_BURST) bu.r = Math.min(MAX_BURST, bu.r + GROW * f);
         for (const b of balls) {
           if (b.state !== "idle") continue;
           const dx = b.x - bu.x;
@@ -277,7 +283,9 @@ function Game({
             // visual-only feedback
             shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
             if (chainRef.current === FEVER_AT) flashRef.current = 22;
-            const n = 5 + t * 4;
+            // cap total particles so heavy chains never tank the frame rate
+            const budget = Math.max(0, MAX_PARTICLES - parts.length);
+            const n = Math.min(budget, 5 + t * 4);
             for (let k = 0; k < n; k++) {
               const a = Math.random() * Math.PI * 2;
               const sp = 1 + Math.random() * (1.5 + t);
@@ -298,23 +306,24 @@ function Game({
 
       for (const b of balls) {
         if (b.state === "burst") {
-          b.life++;
+          b.life += f;
           if (b.life > 16) b.state = "done";
         }
       }
 
       for (let i = parts.length - 1; i >= 0; i--) {
         const p = parts[i]!;
-        p.life++;
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 0.95;
-        p.vy *= 0.95;
+        p.life += f;
+        p.x += p.vx * f;
+        p.y += p.vy * f;
+        const damp = Math.pow(0.95, f);
+        p.vx *= damp;
+        p.vy *= damp;
         if (p.life > p.max) parts.splice(i, 1);
       }
 
-      shakeRef.current *= 0.88;
-      if (flashRef.current > 0) flashRef.current--;
+      shakeRef.current *= Math.pow(0.88, f);
+      if (flashRef.current > 0) flashRef.current = Math.max(0, flashRef.current - f);
 
       const isChaining = firedRef.current && bursts.length > 0;
       if (isChaining !== chainingRef.current) {
