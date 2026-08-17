@@ -271,7 +271,7 @@ function Game({
 }: {
   best: number;
   plays: number;
-  persist: (b: number, p: number) => void;
+  persist: (b: number, p: number, newChain: number) => void;
   onTitle: () => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
