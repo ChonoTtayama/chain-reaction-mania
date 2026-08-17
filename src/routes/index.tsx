@@ -56,14 +56,26 @@ function tierOf(chain: number) {
 }
 
 function loadStore() {
-  if (typeof window === "undefined") return { best: 0, plays: 0 };
+  const empty = { best: 0, plays: 0, history: [] as number[] };
+  if (typeof window === "undefined") return empty;
   try {
     const raw = window.localStorage.getItem(STORE);
-    if (!raw) return { best: 0, plays: 0 };
+    if (!raw) return empty;
     const p = JSON.parse(raw);
-    return { best: Number(p.best) || 0, plays: Number(p.plays) || 0 };
+    // Backward compat: older saves (Round 1/2) only had best + plays.
+    // Treat a missing/invalid `history` as an empty array so existing users
+    // are not broken — they just start collecting history from this play on.
+    const histRaw = Array.isArray(p.history) ? p.history : [];
+    const hist = histRaw
+      .filter((n: unknown): n is number => typeof n === "number" && Number.isFinite(n))
+      .slice(0, 10);
+    return {
+      best: Number(p.best) || 0,
+      plays: Number(p.plays) || 0,
+      history: hist,
+    };
   } catch {
-    return { best: 0, plays: 0 };
+    return empty;
   }
 }
 
