@@ -80,31 +80,56 @@ function loadStore() {
 }
 
 function Index() {
-  const [screen, setScreen] = useState<"title" | "game">("title");
+  const [screen, setScreen] = useState<"title" | "game" | "history">("title");
   const [best, setBest] = useState(0);
   const [plays, setPlays] = useState(0);
+  const [history, setHistory] = useState<number[]>([]);
 
   useEffect(() => {
     const s = loadStore();
     setBest(s.best);
     setPlays(s.plays);
+    setHistory(s.history);
   }, []);
 
-  const persist = useCallback((b: number, p: number) => {
+  // Persist a finished play: update best/plays and prepend this play's chain
+  // to the rolling history (capped at 10, newest first). Uses a functional
+  // state update so `persist` stays referentially stable and the RAF effect
+  // in <Game> is not re-subscribed on every play.
+  const persist = useCallback((b: number, p: number, newChain: number) => {
     setBest(b);
     setPlays(p);
-    try {
-      window.localStorage.setItem(STORE, JSON.stringify({ best: b, plays: p }));
-    } catch {
-      /* ignore */
-    }
+    setHistory((prev) => {
+      const next = [newChain, ...prev].slice(0, 10);
+      try {
+        window.localStorage.setItem(
+          STORE,
+          JSON.stringify({ best: b, plays: p, history: next }),
+        );
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-arena" />
       {screen === "title" ? (
-        <Title best={best} plays={plays} onStart={() => setScreen("game")} />
+        <Title
+          best={best}
+          plays={plays}
+          onStart={() => setScreen("game")}
+          onHistory={() => setScreen("history")}
+        />
+      ) : screen === "history" ? (
+        <History
+          best={best}
+          plays={plays}
+          history={history}
+          onBack={() => setScreen("title")}
+        />
       ) : (
         <Game
           best={best}
