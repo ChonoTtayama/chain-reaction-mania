@@ -94,17 +94,40 @@ function loadStore() {
   }
 }
 
+// Settings live under their own key so writing play stats can never clobber
+// them (and vice versa). Missing / invalid values fall back to defaults.
+function loadSettings(): Settings {
+  if (typeof window === "undefined") return DEFAULT_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORE);
+    if (!raw) return DEFAULT_SETTINGS;
+    const p = JSON.parse(raw) ?? {};
+    const count = BALL_COUNTS.find((c) => c === Number(p.ballCount));
+    const speed = SPEEDS.find((s) => s === p.speed);
+    const effect = EFFECTS.find((e) => e === p.effect);
+    return {
+      ballCount: count ?? DEFAULT_SETTINGS.ballCount,
+      speed: speed ?? DEFAULT_SETTINGS.speed,
+      effect: effect ?? DEFAULT_SETTINGS.effect,
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 function Index() {
-  const [screen, setScreen] = useState<"title" | "game" | "history">("title");
+  const [screen, setScreen] = useState<"title" | "game" | "history" | "settings">("title");
   const [best, setBest] = useState(0);
   const [plays, setPlays] = useState(0);
   const [history, setHistory] = useState<number[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     const s = loadStore();
     setBest(s.best);
     setPlays(s.plays);
     setHistory(s.history);
+    setSettings(loadSettings());
   }, []);
 
   // Persist a finished play: update best/plays and prepend this play's chain
@@ -128,6 +151,19 @@ function Index() {
     });
   }, []);
 
+  // immediate save — no explicit save button needed
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        window.localStorage.setItem(SETTINGS_STORE, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-arena" />
@@ -137,6 +173,7 @@ function Index() {
           plays={plays}
           onStart={() => setScreen("game")}
           onHistory={() => setScreen("history")}
+          onSettings={() => setScreen("settings")}
         />
       ) : screen === "history" ? (
         <History
@@ -145,10 +182,17 @@ function Index() {
           history={history}
           onBack={() => setScreen("title")}
         />
+      ) : screen === "settings" ? (
+        <SettingsScreen
+          settings={settings}
+          onChange={updateSettings}
+          onBack={() => setScreen("title")}
+        />
       ) : (
         <Game
           best={best}
           plays={plays}
+          settings={settings}
           persist={persist}
           onTitle={() => setScreen("title")}
         />
@@ -156,6 +200,92 @@ function Index() {
     </main>
   );
 }
+
+function SettingsScreen({
+  settings,
+  onChange,
+  onBack,
+}: {
+  settings: Settings;
+  onChange: (patch: Partial<Settings>) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-6 px-6 py-10 text-center">
+      <h1 className="text-glow text-3xl font-black tracking-[0.12em] sm:text-4xl">SETTINGS</h1>
+
+      <div className="w-full space-y-5 rounded-2xl border border-border/60 bg-card/60 p-5 text-left backdrop-blur">
+        <OptionRow
+          label="BALL COUNT"
+          options={BALL_COUNTS.map((c) => ({ value: String(c), label: String(c) }))}
+          current={String(settings.ballCount)}
+          onSelect={(v) => onChange({ ballCount: Number(v) as Settings["ballCount"] })}
+        />
+        <OptionRow
+          label="BALL SPEED"
+          options={SPEEDS.map((s) => ({ value: s, label: s }))}
+          current={settings.speed}
+          onSelect={(v) => onChange({ speed: v as Settings["speed"] })}
+        />
+        <OptionRow
+          label="EFFECT"
+          options={EFFECTS.map((e) => ({ value: e, label: e }))}
+          current={settings.effect}
+          onSelect={(v) => onChange({ effect: v as Settings["effect"] })}
+        />
+        <p className="text-xs text-muted-foreground">
+          変更は自動保存されます。次のプレイから反映されます。
+        </p>
+      </div>
+
+      <button onClick={onBack} className="btn-ghost w-full max-w-xs">
+        ← TITLE
+      </button>
+    </div>
+  );
+}
+
+function OptionRow({
+  label,
+  options,
+  current,
+  onSelect,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  current: string;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+        {label}
+      </div>
+      <div role="group" aria-label={label} className="grid grid-cols-3 gap-2">
+        {options.map((o) => {
+          const active = o.value === current;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(o.value)}
+              className={
+                "rounded-xl border px-3 py-3 font-mono text-sm font-bold tracking-[0.1em] transition " +
+                (active
+                  ? "border-primary bg-primary/15 text-foreground shadow-[0_0_24px_-8px_var(--glow)]"
+                  : "border-border/60 bg-background/40 text-muted-foreground hover:text-foreground")
+              }
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
