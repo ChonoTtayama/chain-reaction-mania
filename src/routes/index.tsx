@@ -337,6 +337,11 @@ function Title({
         HISTORY
       </button>
 
+      <button onClick={onSettings} className="btn-ghost w-full max-w-xs">
+        SETTINGS
+      </button>
+
+
       <div className="flex gap-3">
         <Stat label="BEST CHAIN" value={best} />
         <Stat label="PLAY COUNT" value={plays} />
