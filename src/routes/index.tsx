@@ -22,13 +22,28 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const BALL_COUNT = 30;
 const BALL_R = 11;
 const MAX_BURST = 78;
 const GROW = 1.5;
 const HOLD = 26;
 const FEVER_AT = 10;
 const MAX_PARTICLES = 260;
+
+// ---- settings ----
+const BALL_COUNTS = [20, 30, 40] as const;
+const SPEEDS = ["SLOW", "NORMAL", "FAST"] as const;
+const EFFECTS = ["NORMAL", "REDUCED"] as const;
+
+type Settings = {
+  ballCount: (typeof BALL_COUNTS)[number];
+  speed: (typeof SPEEDS)[number];
+  effect: (typeof EFFECTS)[number];
+};
+
+const DEFAULT_SETTINGS: Settings = { ballCount: 30, speed: "NORMAL", effect: "NORMAL" };
+
+const SPEED_MUL: Record<Settings["speed"], number> = { SLOW: 0.6, NORMAL: 1, FAST: 1.55 };
+
 
 type Ball = {
   x: number;
@@ -46,6 +61,7 @@ type Burst = { x: number; y: number; r: number; life: number; hue: number; tier:
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number };
 
 const STORE = "chainburst.v1";
+const SETTINGS_STORE = "chainburst.settings.v1";
 
 // visual-only intensity tier from current chain count
 function tierOf(chain: number) {
@@ -79,17 +95,40 @@ function loadStore() {
   }
 }
 
+// Settings live under their own key so writing play stats can never clobber
+// them (and vice versa). Missing / invalid values fall back to defaults.
+function loadSettings(): Settings {
+  if (typeof window === "undefined") return DEFAULT_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORE);
+    if (!raw) return DEFAULT_SETTINGS;
+    const p = JSON.parse(raw) ?? {};
+    const count = BALL_COUNTS.find((c) => c === Number(p.ballCount));
+    const speed = SPEEDS.find((s) => s === p.speed);
+    const effect = EFFECTS.find((e) => e === p.effect);
+    return {
+      ballCount: count ?? DEFAULT_SETTINGS.ballCount,
+      speed: speed ?? DEFAULT_SETTINGS.speed,
+      effect: effect ?? DEFAULT_SETTINGS.effect,
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 function Index() {
-  const [screen, setScreen] = useState<"title" | "game" | "history">("title");
+  const [screen, setScreen] = useState<"title" | "game" | "history" | "settings">("title");
   const [best, setBest] = useState(0);
   const [plays, setPlays] = useState(0);
   const [history, setHistory] = useState<number[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     const s = loadStore();
     setBest(s.best);
     setPlays(s.plays);
     setHistory(s.history);
+    setSettings(loadSettings());
   }, []);
 
   // Persist a finished play: update best/plays and prepend this play's chain
@@ -113,6 +152,19 @@ function Index() {
     });
   }, []);
 
+  // immediate save — no explicit save button needed
+  const updateSettings = useCallback((patch: Partial<Settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        window.localStorage.setItem(SETTINGS_STORE, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-arena" />
@@ -122,6 +174,7 @@ function Index() {
           plays={plays}
           onStart={() => setScreen("game")}
           onHistory={() => setScreen("history")}
+          onSettings={() => setScreen("settings")}
         />
       ) : screen === "history" ? (
         <History
@@ -130,10 +183,17 @@ function Index() {
           history={history}
           onBack={() => setScreen("title")}
         />
+      ) : screen === "settings" ? (
+        <SettingsScreen
+          settings={settings}
+          onChange={updateSettings}
+          onBack={() => setScreen("title")}
+        />
       ) : (
         <Game
           best={best}
           plays={plays}
+          settings={settings}
           persist={persist}
           onTitle={() => setScreen("title")}
         />
@@ -141,6 +201,92 @@ function Index() {
     </main>
   );
 }
+
+function SettingsScreen({
+  settings,
+  onChange,
+  onBack,
+}: {
+  settings: Settings;
+  onChange: (patch: Partial<Settings>) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-6 px-6 py-10 text-center">
+      <h1 className="text-glow text-3xl font-black tracking-[0.12em] sm:text-4xl">SETTINGS</h1>
+
+      <div className="w-full space-y-5 rounded-2xl border border-border/60 bg-card/60 p-5 text-left backdrop-blur">
+        <OptionRow
+          label="BALL COUNT"
+          options={BALL_COUNTS.map((c) => ({ value: String(c), label: String(c) }))}
+          current={String(settings.ballCount)}
+          onSelect={(v) => onChange({ ballCount: Number(v) as Settings["ballCount"] })}
+        />
+        <OptionRow
+          label="BALL SPEED"
+          options={SPEEDS.map((s) => ({ value: s, label: s }))}
+          current={settings.speed}
+          onSelect={(v) => onChange({ speed: v as Settings["speed"] })}
+        />
+        <OptionRow
+          label="EFFECT"
+          options={EFFECTS.map((e) => ({ value: e, label: e }))}
+          current={settings.effect}
+          onSelect={(v) => onChange({ effect: v as Settings["effect"] })}
+        />
+        <p className="text-xs text-muted-foreground">
+          変更は自動保存されます。次のプレイから反映されます。
+        </p>
+      </div>
+
+      <button onClick={onBack} className="btn-ghost w-full max-w-xs">
+        ← TITLE
+      </button>
+    </div>
+  );
+}
+
+function OptionRow({
+  label,
+  options,
+  current,
+  onSelect,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  current: string;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground">
+        {label}
+      </div>
+      <div role="group" aria-label={label} className="grid grid-cols-3 gap-2">
+        {options.map((o) => {
+          const active = o.value === current;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(o.value)}
+              className={
+                "rounded-xl border px-3 py-3 font-mono text-sm font-bold tracking-[0.1em] transition " +
+                (active
+                  ? "border-primary bg-primary/15 text-foreground shadow-[0_0_24px_-8px_var(--glow)]"
+                  : "border-border/60 bg-background/40 text-muted-foreground hover:text-foreground")
+              }
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 function Stat({ label, value }: { label: string; value: number | string }) {
   return (
@@ -158,11 +304,13 @@ function Title({
   plays,
   onStart,
   onHistory,
+  onSettings,
 }: {
   best: number;
   plays: number;
   onStart: () => void;
   onHistory: () => void;
+  onSettings: () => void;
 }) {
   return (
     <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-8 px-6 py-10 text-center">
@@ -188,6 +336,11 @@ function Title({
       <button onClick={onHistory} className="btn-ghost w-full max-w-xs">
         HISTORY
       </button>
+
+      <button onClick={onSettings} className="btn-ghost w-full max-w-xs">
+        SETTINGS
+      </button>
+
 
       <div className="flex gap-3">
         <Stat label="BEST CHAIN" value={best} />
@@ -266,14 +419,17 @@ function History({
 function Game({
   best,
   plays,
+  settings,
   persist,
   onTitle,
 }: {
   best: number;
   plays: number;
+  settings: Settings;
   persist: (b: number, p: number, newChain: number) => void;
   onTitle: () => void;
 }) {
+  const reduced = settings.effect === "REDUCED";
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ballsRef = useRef<Ball[]>([]);
@@ -304,9 +460,10 @@ function Game({
     chainingRef.current = false;
     burstsRef.current = [];
     particlesRef.current = [];
-    ballsRef.current = Array.from({ length: BALL_COUNT }, () => {
+    ballsRef.current = Array.from({ length: settings.ballCount }, () => {
       const a = Math.random() * Math.PI * 2;
-      const sp = 0.5 + Math.random() * 1.1;
+      // per-ball variance is preserved; the setting only scales the whole field
+      const sp = (0.5 + Math.random() * 1.1) * SPEED_MUL[settings.speed];
       return {
         x: BALL_R + Math.random() * Math.max(1, w - BALL_R * 2),
         y: BALL_R + Math.random() * Math.max(1, h - BALL_R * 2),
@@ -322,7 +479,7 @@ function Game({
     setChaining(false);
     setFired(false);
     setResult(null);
-  }, []);
+  }, [settings.ballCount, settings.speed]);
 
   // sizing
   useEffect(() => {
@@ -390,12 +547,14 @@ function Game({
             setChain(chainRef.current);
             const t = tierOf(chainRef.current);
             bursts.push({ x: b.x, y: b.y, r: 4, life: 0, hue: b.hue, tier: t });
-            // visual-only feedback
-            shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
-            if (chainRef.current === FEVER_AT) flashRef.current = 22;
+            // visual-only feedback (REDUCED: no shake / flash, fewer particles)
+            if (!reduced) {
+              shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
+              if (chainRef.current === FEVER_AT) flashRef.current = 22;
+            }
             // cap total particles so heavy chains never tank the frame rate
-            const budget = Math.max(0, MAX_PARTICLES - parts.length);
-            const n = Math.min(budget, 5 + t * 4);
+            const budget = Math.max(0, (reduced ? 80 : MAX_PARTICLES) - parts.length);
+            const n = Math.min(budget, reduced ? 2 : 5 + t * 4);
             for (let k = 0; k < n; k++) {
               const a = Math.random() * Math.PI * 2;
               const sp = 1 + Math.random() * (1.5 + t);
@@ -461,7 +620,7 @@ function Game({
       const curTier = tierOf(chainRef.current);
 
       // fever backdrop (subtle, keeps balls readable)
-      if (curTier >= 3) {
+      if (curTier >= 3 && !reduced) {
         const pulse = 0.05 + 0.03 * Math.sin(Date.now() / 140);
         const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
         g.addColorStop(0, `hsla(48 100% 60% / ${pulse})`);
@@ -524,7 +683,7 @@ function Game({
         ctx.fill();
 
         // fever: rotating cross flare (thin, does not hide the field)
-        if (t >= 3 && fade > 0.2) {
+        if (t >= 3 && fade > 0.2 && !reduced) {
           const a = bu.life * 0.12;
           ctx.strokeStyle = `hsla(48 100% 85% / ${0.35 * fade})`;
           ctx.lineWidth = 1.5;
@@ -545,7 +704,7 @@ function Game({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [best, plays, persist, result]);
+  }, [best, plays, persist, result, reduced]);
 
   const onPointer = (e: React.PointerEvent) => {
     if (firedRef.current) return;
@@ -579,7 +738,7 @@ function Game({
       <div
         ref={wrapRef}
         onPointerDown={onPointer}
-        data-tier={tier}
+        data-tier={reduced ? 0 : tier}
         className="field-frame relative flex-1 touch-none select-none overflow-hidden rounded-2xl border border-border/60 bg-field shadow-[0_0_60px_-20px_var(--glow)]"
       >
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
@@ -595,7 +754,7 @@ function Game({
         {fired && !result && (
           <div
             className="chain-field pointer-events-none absolute left-1/2 top-2 -translate-x-1/2"
-            data-tier={tier}
+            data-tier={reduced ? Math.min(tier, 1) : tier}
           >
             <div className="chain-field-label">CHAIN</div>
             <div key={chain} className="chain-field-num">
@@ -612,7 +771,7 @@ function Game({
               </div>
               <div className="mt-2 font-mono text-4xl font-black">
                 CHAIN {result.chain}
-                <span className="text-muted-foreground"> / {BALL_COUNT}</span>
+                <span className="text-muted-foreground"> / {settings.ballCount}</span>
               </div>
               {result.chain >= FEVER_AT && (
                 <div className="mt-1 text-xs font-bold tracking-[0.25em] text-[oklch(0.85_0.17_85)]">
