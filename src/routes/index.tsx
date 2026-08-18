@@ -304,11 +304,13 @@ function Title({
   plays,
   onStart,
   onHistory,
+  onSettings,
 }: {
   best: number;
   plays: number;
   onStart: () => void;
   onHistory: () => void;
+  onSettings: () => void;
 }) {
   return (
     <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-xl flex-col items-center justify-center gap-8 px-6 py-10 text-center">
