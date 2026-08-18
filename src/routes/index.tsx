@@ -419,14 +419,17 @@ function History({
 function Game({
   best,
   plays,
+  settings,
   persist,
   onTitle,
 }: {
   best: number;
   plays: number;
+  settings: Settings;
   persist: (b: number, p: number, newChain: number) => void;
   onTitle: () => void;
 }) {
+  const reduced = settings.effect === "REDUCED";
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ballsRef = useRef<Ball[]>([]);
@@ -457,9 +460,10 @@ function Game({
     chainingRef.current = false;
     burstsRef.current = [];
     particlesRef.current = [];
-    ballsRef.current = Array.from({ length: BALL_COUNT }, () => {
+    ballsRef.current = Array.from({ length: settings.ballCount }, () => {
       const a = Math.random() * Math.PI * 2;
-      const sp = 0.5 + Math.random() * 1.1;
+      // per-ball variance is preserved; the setting only scales the whole field
+      const sp = (0.5 + Math.random() * 1.1) * SPEED_MUL[settings.speed];
       return {
         x: BALL_R + Math.random() * Math.max(1, w - BALL_R * 2),
         y: BALL_R + Math.random() * Math.max(1, h - BALL_R * 2),
@@ -475,7 +479,7 @@ function Game({
     setChaining(false);
     setFired(false);
     setResult(null);
-  }, []);
+  }, [settings.ballCount, settings.speed]);
 
   // sizing
   useEffect(() => {
@@ -543,12 +547,14 @@ function Game({
             setChain(chainRef.current);
             const t = tierOf(chainRef.current);
             bursts.push({ x: b.x, y: b.y, r: 4, life: 0, hue: b.hue, tier: t });
-            // visual-only feedback
-            shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
-            if (chainRef.current === FEVER_AT) flashRef.current = 22;
+            // visual-only feedback (REDUCED: no shake / flash, fewer particles)
+            if (!reduced) {
+              shakeRef.current = Math.min(6, shakeRef.current + 1 + t);
+              if (chainRef.current === FEVER_AT) flashRef.current = 22;
+            }
             // cap total particles so heavy chains never tank the frame rate
-            const budget = Math.max(0, MAX_PARTICLES - parts.length);
-            const n = Math.min(budget, 5 + t * 4);
+            const budget = Math.max(0, (reduced ? 80 : MAX_PARTICLES) - parts.length);
+            const n = Math.min(budget, reduced ? 2 : 5 + t * 4);
             for (let k = 0; k < n; k++) {
               const a = Math.random() * Math.PI * 2;
               const sp = 1 + Math.random() * (1.5 + t);
@@ -614,7 +620,7 @@ function Game({
       const curTier = tierOf(chainRef.current);
 
       // fever backdrop (subtle, keeps balls readable)
-      if (curTier >= 3) {
+      if (curTier >= 3 && !reduced) {
         const pulse = 0.05 + 0.03 * Math.sin(Date.now() / 140);
         const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
         g.addColorStop(0, `hsla(48 100% 60% / ${pulse})`);
@@ -677,7 +683,7 @@ function Game({
         ctx.fill();
 
         // fever: rotating cross flare (thin, does not hide the field)
-        if (t >= 3 && fade > 0.2) {
+        if (t >= 3 && fade > 0.2 && !reduced) {
           const a = bu.life * 0.12;
           ctx.strokeStyle = `hsla(48 100% 85% / ${0.35 * fade})`;
           ctx.lineWidth = 1.5;
@@ -698,7 +704,7 @@ function Game({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [best, plays, persist, result]);
+  }, [best, plays, persist, result, reduced]);
 
   const onPointer = (e: React.PointerEvent) => {
     if (firedRef.current) return;
@@ -732,7 +738,7 @@ function Game({
       <div
         ref={wrapRef}
         onPointerDown={onPointer}
-        data-tier={tier}
+        data-tier={reduced ? 0 : tier}
         className="field-frame relative flex-1 touch-none select-none overflow-hidden rounded-2xl border border-border/60 bg-field shadow-[0_0_60px_-20px_var(--glow)]"
       >
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
@@ -748,7 +754,7 @@ function Game({
         {fired && !result && (
           <div
             className="chain-field pointer-events-none absolute left-1/2 top-2 -translate-x-1/2"
-            data-tier={tier}
+            data-tier={reduced ? Math.min(tier, 1) : tier}
           >
             <div className="chain-field-label">CHAIN</div>
             <div key={chain} className="chain-field-num">
@@ -765,7 +771,7 @@ function Game({
               </div>
               <div className="mt-2 font-mono text-4xl font-black">
                 CHAIN {result.chain}
-                <span className="text-muted-foreground"> / {BALL_COUNT}</span>
+                <span className="text-muted-foreground"> / {settings.ballCount}</span>
               </div>
               {result.chain >= FEVER_AT && (
                 <div className="mt-1 text-xs font-bold tracking-[0.25em] text-[oklch(0.85_0.17_85)]">
