@@ -61,6 +61,7 @@ type Burst = { x: number; y: number; r: number; life: number; hue: number; tier:
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; hue: number };
 
 const STORE = "chainburst.v1";
+const SETTINGS_STORE = "chainburst.settings.v1";
 
 // visual-only intensity tier from current chain count
 function tierOf(chain: number) {
