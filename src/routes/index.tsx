@@ -22,13 +22,28 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-const BALL_COUNT = 30;
 const BALL_R = 11;
 const MAX_BURST = 78;
 const GROW = 1.5;
 const HOLD = 26;
 const FEVER_AT = 10;
 const MAX_PARTICLES = 260;
+
+// ---- settings ----
+const BALL_COUNTS = [20, 30, 40] as const;
+const SPEEDS = ["SLOW", "NORMAL", "FAST"] as const;
+const EFFECTS = ["NORMAL", "REDUCED"] as const;
+
+type Settings = {
+  ballCount: (typeof BALL_COUNTS)[number];
+  speed: (typeof SPEEDS)[number];
+  effect: (typeof EFFECTS)[number];
+};
+
+const DEFAULT_SETTINGS: Settings = { ballCount: 30, speed: "NORMAL", effect: "NORMAL" };
+
+const SPEED_MUL: Record<Settings["speed"], number> = { SLOW: 0.6, NORMAL: 1, FAST: 1.55 };
+
 
 type Ball = {
   x: number;
